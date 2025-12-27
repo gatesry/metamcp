@@ -44,3 +44,5 @@ yarn-error.log*
 # Docker Files
 docker-compose.override.yml
 compose.override.yml
+CLAUDE.md
+.github/copilot-instructions.md
