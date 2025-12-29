@@ -37,8 +37,15 @@ jobs:
         if ! git remote | grep -q '^upstream$'; then
           git remote add upstream https://github.com/metatool-ai/metamcp.git
         fi
-        # Fetch only the branches we need to check (continue even if some branches don't exist)
-        git fetch upstream main test docker-per-mcp || true
+        # Fetch only the branches we need to check; handle failures explicitly
+        echo "Fetching upstream branches (main, test, docker-per-mcp)..."
+        if ! git fetch --quiet upstream main test docker-per-mcp; then
+          echo "WARNING: Failed to fetch upstream branches from metatool-ai/metamcp."
+          echo "This may be because the upstream repository is unavailable or the specified branches do not exist."
+          echo "Marking commit as not-from-upstream and skipping Docker build."
+          echo "is-from-upstream=false" >> $GITHUB_OUTPUT
+          exit 0
+        fi
         
         # Check if the current commit exists in any upstream branch
         # Using git branch --contains to see if any upstream branch contains this commit
