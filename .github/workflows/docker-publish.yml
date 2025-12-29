@@ -33,18 +33,19 @@ jobs:
     - name: Check for upstream changes
       id: upstream-check
       run: |
-        # Add upstream remote
-        git remote add upstream https://github.com/metatool-ai/metamcp.git || true
+        # Add upstream remote if it doesn't exist
+        if ! git remote | grep -q '^upstream$'; then
+          git remote add upstream https://github.com/metatool-ai/metamcp.git
+        fi
         git fetch upstream
         
-        # Check if the current commit (tag) exists in upstream
-        if git merge-base --is-ancestor ${{ github.sha }} upstream/main || \
-           git merge-base --is-ancestor ${{ github.sha }} upstream/test || \
-           git merge-base --is-ancestor ${{ github.sha }} upstream/docker-per-mcp; then
-          echo "Current commit is from upstream"
+        # Check if the current commit exists in any upstream branch
+        # Using git branch --contains to see if any upstream branch contains this commit
+        if git branch -r --contains ${{ github.sha }} | grep -qE 'upstream/(main|test|docker-per-mcp)'; then
+          echo "Current commit exists in upstream"
           echo "is-from-upstream=true" >> $GITHUB_OUTPUT
         else
-          echo "Current commit is NOT from upstream, skipping build"
+          echo "Current commit does NOT exist in upstream, skipping build"
           echo "is-from-upstream=false" >> $GITHUB_OUTPUT
         fi
 
