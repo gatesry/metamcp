@@ -28,7 +28,7 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
-        fetch-depth: 0  # Fetch all history for all branches and tags
+        fetch-depth: 1  # Shallow fetch; full history not required for upstream check
 
     - name: Check for upstream changes
       id: upstream-check
