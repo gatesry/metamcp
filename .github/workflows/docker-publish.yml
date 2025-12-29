@@ -28,10 +28,45 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
-        fetch-depth: 0  # Fetch all history for all branches and tags
+        fetch-depth: 1  # Shallow fetch; full history not required for upstream check
+
+    - name: Check for upstream changes
+      id: upstream-check
+      run: |
+        # Add upstream remote if it doesn't exist
+        if ! git remote | grep -q '^upstream$'; then
+          git remote add upstream https://github.com/metatool-ai/metamcp.git
+        fi
+        # Fetch only the branches we need to check; handle failures explicitly
+        echo "Fetching upstream branches (main, test, docker-per-mcp)..."
+        if ! git fetch --quiet upstream main test docker-per-mcp; then
+          echo "WARNING: Failed to fetch upstream branches from metatool-ai/metamcp."
+          echo "This may be because the upstream repository is unavailable or the specified branches do not exist."
+          echo "Marking commit as not-from-upstream and skipping Docker build."
+          echo "is-from-upstream=false" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+        
+        # Check if the current commit exists in any upstream branch
+        # Using git branch --contains to see if any upstream branch contains this commit
+        if git branch -r --contains "${{ github.sha }}" | grep -qE 'upstream/(main|test|docker-per-mcp)'; then
+          echo "Current commit exists in upstream"
+          echo "is-from-upstream=true" >> $GITHUB_OUTPUT
+        else
+          echo "Current commit does NOT exist in upstream, skipping build"
+          echo "is-from-upstream=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Skip build - commit not from upstream
+      if: steps.upstream-check.outputs.is-from-upstream == 'false'
+      run: |
+        echo "⚠️ Build skipped: This commit does not exist in the upstream repository (metatool-ai/metamcp)"
+        echo "Only commits from upstream will trigger Docker image builds"
+        exit 0
 
     - name: Check branch for tag
       id: check-branch
+      if: steps.upstream-check.outputs.is-from-upstream == 'true'
       run: |
         # Check if the tag name contains -test suffix
         if [[ "${{ github.ref_name }}" == *"-test" ]]; then
@@ -65,11 +100,11 @@ jobs:
         fi
 
     - name: Set up Docker Buildx
-      if: steps.check-branch.outputs.on-main == 'true' || steps.check-branch.outputs.on-test == 'true' || steps.check-branch.outputs.on-docker-per-mcp == 'true'
+      if: steps.upstream-check.outputs.is-from-upstream == 'true' && (steps.check-branch.outputs.on-main == 'true' || steps.check-branch.outputs.on-test == 'true' || steps.check-branch.outputs.on-docker-per-mcp == 'true')
       uses: docker/setup-buildx-action@v3
 
     - name: Log in to Container Registry
-      if: steps.check-branch.outputs.on-main == 'true' || steps.check-branch.outputs.on-test == 'true' || steps.check-branch.outputs.on-docker-per-mcp == 'true'
+      if: steps.upstream-check.outputs.is-from-upstream == 'true' && (steps.check-branch.outputs.on-main == 'true' || steps.check-branch.outputs.on-test == 'true' || steps.check-branch.outputs.on-docker-per-mcp == 'true')
       uses: docker/login-action@v3
       with:
         registry: ${{ env.REGISTRY }}
@@ -77,7 +112,7 @@ jobs:
         password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Extract metadata for main branch
-      if: steps.check-branch.outputs.on-main == 'true'
+      if: steps.upstream-check.outputs.is-from-upstream == 'true' && steps.check-branch.outputs.on-main == 'true'
       id: meta-main
       uses: docker/metadata-action@v5
       with:
@@ -89,7 +124,7 @@ jobs:
           type=raw,value=latest
 
     - name: Extract metadata for test branch
-      if: steps.check-branch.outputs.on-test == 'true'
+      if: steps.upstream-check.outputs.is-from-upstream == 'true' && steps.check-branch.outputs.on-test == 'true'
       id: meta-test
       uses: docker/metadata-action@v5
       with:
@@ -99,7 +134,7 @@ jobs:
           type=raw,value=test
 
     - name: Extract metadata for docker-per-mcp branch
-      if: steps.check-branch.outputs.on-docker-per-mcp == 'true'
+      if: steps.upstream-check.outputs.is-from-upstream == 'true' && steps.check-branch.outputs.on-docker-per-mcp == 'true'
       id: meta-docker-per-mcp
       uses: docker/metadata-action@v5
       with:
@@ -109,7 +144,7 @@ jobs:
           type=raw,value=latest
 
     - name: Build and push Docker image for main branch
-      if: steps.check-branch.outputs.on-main == 'true'
+      if: steps.upstream-check.outputs.is-from-upstream == 'true' && steps.check-branch.outputs.on-main == 'true'
       id: push-main
       uses: docker/build-push-action@v5
       with:
@@ -122,7 +157,7 @@ jobs:
         cache-to: type=gha,mode=max
 
     - name: Build and push Docker image for test branch
-      if: steps.check-branch.outputs.on-test == 'true'
+      if: steps.upstream-check.outputs.is-from-upstream == 'true' && steps.check-branch.outputs.on-test == 'true'
       id: push-test
       uses: docker/build-push-action@v5
       with:
@@ -135,7 +170,7 @@ jobs:
         cache-to: type=gha,mode=max
 
     - name: Build and push Docker image for docker-per-mcp branch
-      if: steps.check-branch.outputs.on-docker-per-mcp == 'true'
+      if: steps.upstream-check.outputs.is-from-upstream == 'true' && steps.check-branch.outputs.on-docker-per-mcp == 'true'
       id: push-docker-per-mcp
       uses: docker/build-push-action@v5
       with:
@@ -148,7 +183,7 @@ jobs:
         cache-to: type=gha,mode=max
 
     - name: Generate artifact attestation for main branch
-      if: steps.check-branch.outputs.on-main == 'true'
+      if: steps.upstream-check.outputs.is-from-upstream == 'true' && steps.check-branch.outputs.on-main == 'true'
       uses: actions/attest-build-provenance@v1
       with:
         subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME}}
@@ -156,7 +191,7 @@ jobs:
         push-to-registry: true
 
     - name: Generate artifact attestation for test branch
-      if: steps.check-branch.outputs.on-test == 'true'
+      if: steps.upstream-check.outputs.is-from-upstream == 'true' && steps.check-branch.outputs.on-test == 'true'
       uses: actions/attest-build-provenance@v1
       with:
         subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME}}
@@ -164,7 +199,7 @@ jobs:
         push-to-registry: true
 
     - name: Generate artifact attestation for docker-per-mcp branch
-      if: steps.check-branch.outputs.on-docker-per-mcp == 'true'
+      if: steps.upstream-check.outputs.is-from-upstream == 'true' && steps.check-branch.outputs.on-docker-per-mcp == 'true'
       uses: actions/attest-build-provenance@v1
       with:
         subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME}}-docker-per-mcp
