@@ -30,8 +30,34 @@ jobs:
       with:
         fetch-depth: 0  # Fetch all history for all branches and tags
 
+    - name: Check for upstream changes
+      id: upstream-check
+      run: |
+        # Add upstream remote
+        git remote add upstream https://github.com/metatool-ai/metamcp.git || true
+        git fetch upstream
+        
+        # Check if the current commit (tag) exists in upstream
+        if git merge-base --is-ancestor ${{ github.sha }} upstream/main || \
+           git merge-base --is-ancestor ${{ github.sha }} upstream/test || \
+           git merge-base --is-ancestor ${{ github.sha }} upstream/docker-per-mcp; then
+          echo "Current commit is from upstream"
+          echo "is-from-upstream=true" >> $GITHUB_OUTPUT
+        else
+          echo "Current commit is NOT from upstream, skipping build"
+          echo "is-from-upstream=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Skip build - commit not from upstream
+      if: steps.upstream-check.outputs.is-from-upstream == 'false'
+      run: |
+        echo "⚠️ Build skipped: This commit does not exist in the upstream repository (metatool-ai/metamcp)"
+        echo "Only commits from upstream will trigger Docker image builds"
+        exit 0
+
     - name: Check branch for tag
       id: check-branch
+      if: steps.upstream-check.outputs.is-from-upstream == 'true'
       run: |
         # Check if the tag name contains -test suffix
         if [[ "${{ github.ref_name }}" == *"-test" ]]; then
