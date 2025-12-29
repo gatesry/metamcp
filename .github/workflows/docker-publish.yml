@@ -42,7 +42,7 @@ jobs:
         
         # Check if the current commit exists in any upstream branch
         # Using git branch --contains to see if any upstream branch contains this commit
-        if git branch -r --contains '${{ github.sha }}' | grep -qE 'upstream/(main|test|docker-per-mcp)'; then
+        if git branch -r --contains "${{ github.sha }}" | grep -qE 'upstream/(main|test|docker-per-mcp)'; then
           echo "Current commit exists in upstream"
           echo "is-from-upstream=true" >> $GITHUB_OUTPUT
         else
